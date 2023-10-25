@@ -10,6 +10,16 @@ API_KEY = '53c365c5-8e53-4583-acf8-e9c37e6f00bd'
 MAC_ADDRESS = 'D2:7E:14:56:24:41'
 
 
+def plot_line_chart(data, x_column, y_column, title):
+    fig = px.line(data, x=x_column, y=y_column, title=title)
+    st.plotly_chart(fig)
+
+
+def plot_bar_chart(data, x_column, y_column, title):
+    fig = px.bar(data, x=x_column, y=y_column, title=title)
+    st.plotly_chart(fig)
+
+
 def fetch_data(start_date, end_date):
     url = 'https://api.atmotube.com/api/v1/data'
     params = {
@@ -48,7 +58,11 @@ def main():
         data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
         if data and "data" in data and "items" in data["data"]:
             st.table(data["data"]["items"])
-
+            df = pd.DataFrame(data["data"]["items"])
+            plot_line_chart(df, 'time', 't', 'Indoor Temperature')
+            plot_line_chart(df, 'time', 'h', 'Indoor Humidity')
+            plot_line_chart(df, 'time', 'voc', 'TVOCs')
+            plot_line_chart(df, 'time', 'pm25', 'PM2.5')
 
 if __name__ == '__main__':
     main()
