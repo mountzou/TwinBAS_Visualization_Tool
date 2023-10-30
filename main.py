@@ -194,8 +194,10 @@ def main():
 
         df = pd.DataFrame(st.session_state.data["data"]["items"])
 
-        df['Air Quality Description'] = df['pm25'].apply(get_pm25_description)
-        df['pmv'] = df.apply(lambda row: calculate_pmv(row['t'], row['h']), axis=1)
+        if 'pm25' in df.columns:
+            df['Air Quality Description'] = df['pm25'].apply(get_pm25_description)
+        if 't' in df.columns and 'h' in df.columns:
+            df['pmv'] = df.apply(lambda row: calculate_pmv(row['t'], row['h']), axis=1)
 
         if not df.empty:
             if 'time' in df.columns and 't' in df.columns:
