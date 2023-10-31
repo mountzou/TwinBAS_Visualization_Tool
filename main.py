@@ -187,6 +187,12 @@ def set_container_width(width):
     """,
         unsafe_allow_html=True,
     )
+    hide_streamlit_style = """
+                <style>
+                footer {visibility: hidden;}
+                </style>
+                """
+    st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 
 def plot_line_chart(data, x_column, y_column, title, width=None):
