@@ -194,8 +194,10 @@ def plot_line_chart(data, x_column, y_column, title, width=None):
 
     if width:
         fig.update_layout(autosize=False, width=width)
+    else:
+        fig.update_layout(autosize=True)  # This will make Plotly attempt to size the plot to the container.
 
-    st.plotly_chart(fig)
+    st.plotly_chart(fig, use_container_width=True)  # This will make Streamlit size the container to the plot.
 
 
 def fetch_data(start_date, end_date):
@@ -203,7 +205,6 @@ def fetch_data(start_date, end_date):
     params = {
         'api_key': API_KEY,
         'mac': MAC_ADDRESS,
-        'limit': 100,
         'offset': 0,
         'order': 'desc',
         'start_date': start_date,
@@ -235,61 +236,73 @@ def main():
     start_date_input = col1.date_input('Start Date', day_before)
     end_date_input = col2.date_input('End Date', today)
 
-    if 'data' not in st.session_state:
-        st.session_state.data = None
+    # Calculate the difference in days between the start and end dates
+    date_diff = (end_date_input - start_date_input).days
 
-    if st.button("Fetch Data"):
-        st.session_state.data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
+    # Check if the difference is greater than 7 days
+    if date_diff > 7:
+        st.error('The selected date range is more than 7 days. Please select a shorter range.')
+    else:
 
-    if st.session_state.data and "data" in st.session_state.data and "items" in st.session_state.data["data"]:
-        start_datetime = datetime.combine(start_date_input, datetime.min.time())  # Convert to datetime with 00:00:00 time
-        end_datetime = datetime.combine(end_date_input, datetime.max.time())
-        df_met = get_met(start_datetime, end_datetime)
+        if 'data' not in st.session_state:
+            st.session_state.data = None
 
-        df = pd.DataFrame(st.session_state.data["data"]["items"])
-        df['time'] = pd.to_datetime(df['time'])
+        if st.button("Fetch Data"):
+            st.session_state.data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
 
-        df.set_index('time', inplace=True)
+        if st.session_state.data and "data" in st.session_state.data and "items" in st.session_state.data["data"]:
+            start_datetime = datetime.combine(start_date_input, datetime.min.time())  # Convert to datetime with 00:00:00 time
+            end_datetime = datetime.combine(end_date_input, datetime.max.time())
+            df_met = get_met(start_datetime, end_datetime)
 
-        joined_df = df.join(df_met, how='outer')
-        joined_df.reset_index(inplace=True)
+            df = pd.DataFrame(st.session_state.data["data"]["items"])
+            df['time'] = pd.to_datetime(df['time'])
 
-        joined_df.rename(columns={'index': 'time'}, inplace=True)
+            df.set_index('time', inplace=True)
 
-        if 'pm25' in joined_df.columns:
-            joined_df['Air Quality Description'] = joined_df['pm25'].apply(get_pm25_description)
-        if 't' in joined_df.columns and 'h' in joined_df.columns:
-            joined_df['pmv'] = joined_df.apply(lambda row: calculate_pmv(row['t'], row['h'], row['met'] if not pd.isna(row['met']) else 1), axis=1)
+            joined_df = df.join(df_met, how='outer')
+            joined_df.reset_index(inplace=True)
 
-        if not joined_df.empty:
-            if 'time' in joined_df.columns and 't' in joined_df.columns:
-                plot_line_chart(joined_df, 'time', 't', 'Indoor Temperature', width=1150)
-            if 'time' in joined_df.columns and 'h' in joined_df.columns:
-                plot_line_chart(joined_df, 'time', 'h', 'Indoor Humidity', width=1150)
-            if 'time' in joined_df.columns and 'voc' in joined_df.columns:
-                plot_line_chart(joined_df, 'time', 'voc', 'TVOCs', width=1150)
-            if 'time' in joined_df.columns and 'pm25' in joined_df.columns:
-                plot_line_chart(joined_df, 'time', 'pm25', 'PM2.5', width=1150)
-            if 'time' in joined_df.columns and 'pmv' in joined_df.columns:
-                plot_line_chart(joined_df, 'time', 'pmv', 'PMV (Thermal Comfort)', width=1150)
+            joined_df.rename(columns={'index': 'time'}, inplace=True)
 
-            # Count the frequency of each description
-            description_counts = joined_df['Air Quality Description'].value_counts()
+            if 'pm25' in joined_df.columns:
+                joined_df['Air Quality Description'] = joined_df['pm25'].apply(get_pm25_description)
+            if 't' in joined_df.columns and 'h' in joined_df.columns:
+                joined_df['pmv'] = joined_df.apply(lambda row: calculate_pmv(row['t'], row['h'], row['met'] if not pd.isna(row['met']) else 1), axis=1)
 
-            # Plot the frequencies using a bar chart
-            fig = px.bar(description_counts, x=description_counts.index, y=description_counts.values, title="Frequency of Air Quality Index", labels={
-                'y': 'Frequency', 'index': 'Description'})
-            st.plotly_chart(fig, width=1150)
+            if not joined_df.empty:
+                if 'time' in joined_df.columns and 't' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 't', 'Indoor Temperature')
+                if 'time' in joined_df.columns and 'h' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 'h', 'Indoor Humidity', width=1150)
+                if 'time' in joined_df.columns and 'voc' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 'voc', 'TVOCs', width=1150)
+                if 'time' in joined_df.columns and 'pm1' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 'pm1', 'PM1', width=1150)
+                if 'time' in joined_df.columns and 'pm25' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 'pm25', 'PM2.5', width=1150)
+                if 'time' in joined_df.columns and 'pm10' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 'pm10', 'PM10', width=1150)
+                if 'time' in joined_df.columns and 'pmv' in joined_df.columns:
+                    plot_line_chart(joined_df, 'time', 'pmv', 'PMV (Thermal Comfort)', width=1150)
 
-            num_pages = max(1, len(joined_df) // PAGE_SIZE + (1 if len(joined_df) % PAGE_SIZE else 0))
+                # Count the frequency of each description
+                description_counts = joined_df['Air Quality Description'].value_counts()
 
-            page = st.selectbox("Select page", list(range(1, num_pages + 1)))
+                # Plot the frequencies using a bar chart
+                fig = px.bar(description_counts, x=description_counts.index, y=description_counts.values, title="Frequency of Air Quality Index", labels={
+                    'y': 'Frequency', 'index': 'Description'})
+                st.plotly_chart(fig, width=1150)
 
-            start_idx = (page - 1) * PAGE_SIZE
-            end_idx = start_idx + PAGE_SIZE
-            st.table(joined_df.iloc[start_idx:end_idx])
-        else:
-            st.warning("No data available for the selected date range.")
+                num_pages = max(1, len(joined_df) // PAGE_SIZE + (1 if len(joined_df) % PAGE_SIZE else 0))
+
+                page = st.selectbox("Select page", list(range(1, num_pages + 1)))
+
+                start_idx = (page - 1) * PAGE_SIZE
+                end_idx = start_idx + PAGE_SIZE
+                st.table(joined_df.iloc[start_idx:end_idx])
+            else:
+                st.warning("No data available for the selected date range.")
 
 
 if __name__ == '__main__':
