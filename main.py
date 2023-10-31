@@ -4,15 +4,66 @@ import plotly.express as px
 import requests
 from datetime import datetime, timedelta
 import math
+import mysql.connector
 
 API_KEY = '53c365c5-8e53-4583-acf8-e9c37e6f00bd'
 MAC_ADDRESS = 'D2:7E:14:56:24:41'
 PAGE_SIZE = 20
+DEV_UI = '0080e1150510a98f'
 
 
-def calculate_pmv(temperature, relative_humidity):
+def get_met(start_datetime, end_datetime):
+    config = {
+        'user': 'root',
+        'password': 'sQzWfQ56eSgYr4pVtZoew7tKq45GD1yM',
+        'host': '7gpqlg.stackhero-network.com',
+        'database': 'twinERGY',
+        'raise_on_warnings': True
+    }
+
+    start_timestamp = int(start_datetime.timestamp())
+    end_timestamp = int(end_datetime.timestamp())
+
+    conn = mysql.connector.connect(**config)
+    cursor = conn.cursor()
+
+    query = """
+    SELECT tc_met, tc_timestamp 
+    FROM user_thermal_comfort 
+    WHERE tc_timestamp >= %s 
+    AND tc_timestamp <= %s 
+    AND wearable_id = %s
+    LIMIT 100
+    """
+    cursor.execute(query, (start_timestamp, end_timestamp, DEV_UI))
+
+    # Fetch all results
+    rows = cursor.fetchall()
+
+    data = []
+    for row in rows:
+        met_value = row[0]
+        timestamp = row[1]
+
+        dt_object = datetime.utcfromtimestamp(timestamp)
+        formatted_date = dt_object.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        data.append((met_value, formatted_date))
+
+    # Close the cursor and connection
+    cursor.close()
+    conn.close()
+
+    df = pd.DataFrame(data, columns=['met', 'timestamp'])
+
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df.set_index('timestamp', inplace=True)
+    result = df.resample('1T').mean()
+
+    return result
+
+
+def calculate_pmv(temperature, relative_humidity, met):
     # Constants
-    met = 1.0  # metabolic rate
     va = 0  # air velocity
     tr = temperature  # mean radiant temperature
     clo = 0.5  # clothing insulation
@@ -191,41 +242,52 @@ def main():
         st.session_state.data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
 
     if st.session_state.data and "data" in st.session_state.data and "items" in st.session_state.data["data"]:
+        start_datetime = datetime.combine(start_date_input, datetime.min.time())  # Convert to datetime with 00:00:00 time
+        end_datetime = datetime.combine(end_date_input, datetime.max.time())
+        df_met = get_met(start_datetime, end_datetime)
 
         df = pd.DataFrame(st.session_state.data["data"]["items"])
+        df['time'] = pd.to_datetime(df['time'])
 
-        if 'pm25' in df.columns:
-            df['Air Quality Description'] = df['pm25'].apply(get_pm25_description)
-        if 't' in df.columns and 'h' in df.columns:
-            df['pmv'] = df.apply(lambda row: calculate_pmv(row['t'], row['h']), axis=1)
+        df.set_index('time', inplace=True)
 
-        if not df.empty:
-            if 'time' in df.columns and 't' in df.columns:
-                plot_line_chart(df, 'time', 't', 'Indoor Temperature', width=1150)
-            if 'time' in df.columns and 'h' in df.columns:
-                plot_line_chart(df, 'time', 'h', 'Indoor Humidity', width=1150)
-            if 'time' in df.columns and 'voc' in df.columns:
-                plot_line_chart(df, 'time', 'voc', 'TVOCs', width=1150)
-            if 'time' in df.columns and 'pm25' in df.columns:
-                plot_line_chart(df, 'time', 'pm25', 'PM2.5', width=1150)
-            if 'time' in df.columns and 'pmv' in df.columns:
-                plot_line_chart(df, 'time', 'pmv', 'PMV (Thermal Comfort)', width=1150)
+        joined_df = df.join(df_met, how='outer')
+        joined_df.reset_index(inplace=True)
+
+        joined_df.rename(columns={'index': 'time'}, inplace=True)
+
+        if 'pm25' in joined_df.columns:
+            joined_df['Air Quality Description'] = joined_df['pm25'].apply(get_pm25_description)
+        if 't' in joined_df.columns and 'h' in joined_df.columns:
+            joined_df['pmv'] = joined_df.apply(lambda row: calculate_pmv(row['t'], row['h'], row['met'] if not pd.isna(row['met']) else 1), axis=1)
+
+        if not joined_df.empty:
+            if 'time' in joined_df.columns and 't' in joined_df.columns:
+                plot_line_chart(joined_df, 'time', 't', 'Indoor Temperature', width=1150)
+            if 'time' in joined_df.columns and 'h' in joined_df.columns:
+                plot_line_chart(joined_df, 'time', 'h', 'Indoor Humidity', width=1150)
+            if 'time' in joined_df.columns and 'voc' in joined_df.columns:
+                plot_line_chart(joined_df, 'time', 'voc', 'TVOCs', width=1150)
+            if 'time' in joined_df.columns and 'pm25' in joined_df.columns:
+                plot_line_chart(joined_df, 'time', 'pm25', 'PM2.5', width=1150)
+            if 'time' in joined_df.columns and 'pmv' in joined_df.columns:
+                plot_line_chart(joined_df, 'time', 'pmv', 'PMV (Thermal Comfort)', width=1150)
 
             # Count the frequency of each description
-            description_counts = df['Air Quality Description'].value_counts()
+            description_counts = joined_df['Air Quality Description'].value_counts()
 
             # Plot the frequencies using a bar chart
             fig = px.bar(description_counts, x=description_counts.index, y=description_counts.values, title="Frequency of Air Quality Index", labels={
                 'y': 'Frequency', 'index': 'Description'})
             st.plotly_chart(fig, width=1150)
 
-            num_pages = max(1, len(df) // PAGE_SIZE + (1 if len(df) % PAGE_SIZE else 0))
+            num_pages = max(1, len(joined_df) // PAGE_SIZE + (1 if len(joined_df) % PAGE_SIZE else 0))
 
             page = st.selectbox("Select page", list(range(1, num_pages + 1)))
 
             start_idx = (page - 1) * PAGE_SIZE
             end_idx = start_idx + PAGE_SIZE
-            st.table(df.iloc[start_idx:end_idx])
+            st.table(joined_df.iloc[start_idx:end_idx])
         else:
             st.warning("No data available for the selected date range.")
 
