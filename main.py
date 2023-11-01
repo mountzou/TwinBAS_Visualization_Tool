@@ -7,6 +7,7 @@ import math
 import mysql.connector
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
+import numpy as np
 
 
 API_KEY = '53c365c5-8e53-4583-acf8-e9c37e6f00bd'
@@ -485,7 +486,18 @@ def main():
 
                 num_pages = max(1, len(joined_df) // PAGE_SIZE + (1 if len(joined_df) % PAGE_SIZE else 0))
 
+                st.title("TwinBAS Data Collection")
+
                 page = st.selectbox("Select page", list(range(1, num_pages + 1)))
+
+                # Splitting the 'coords' column into 'lat' and 'lon'
+                joined_df['lat'] = joined_df['coords'].apply(lambda x: x['lat'] if pd.notna(x) else None)
+                joined_df['lon'] = joined_df['coords'].apply(lambda x: x['lon'] if pd.notna(x) else None)
+
+                numerical_cols = joined_df.select_dtypes(include=[np.number]).columns
+                joined_df[numerical_cols] = joined_df[numerical_cols].round(2)
+
+                joined_df = joined_df.drop(columns=['coords'])
 
                 start_idx = (page - 1) * PAGE_SIZE
                 end_idx = start_idx + PAGE_SIZE
