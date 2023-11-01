@@ -333,8 +333,8 @@ def main():
     today = datetime.today().date()
     day_before = today - timedelta(days=1)
 
-    default_end_date = today.strftime('%Y-%m-%d')
-    default_start_date = day_before.strftime('%Y-%m-%d')
+    default_end_date = datetime.today().date()
+    default_start_date = datetime.today().date()- timedelta(days=1)
 
     col1, col2 = st.columns(2)
     start_date_input = col1.date_input('Start Date', day_before)
@@ -343,29 +343,23 @@ def main():
     # Calculate the difference in days between the start and end dates
     date_diff = (end_date_input - start_date_input).days
 
+    col3, col4 = st.columns(2)
+    press = col3.button("Fetch Data")
+    real_time = col4.checkbox("Real Time")
+
     # Check if the difference is greater than 7 days
     if date_diff > 7:
         st.error('The selected date range is more than 7 days. Please select a shorter range.')
     else:
-        col3, col4 = st.columns(2)
+
         if 'data' not in st.session_state:
             st.session_state.data = None
-            # Initialize the checkbox state in session_state if it hasn't been already
-        if 'real_time_checkbox' not in st.session_state:
-            st.session_state['real_time_checkbox'] = False
-
-            # Use the saved state of the checkbox
-        st.session_state['real_time_checkbox'] = col4.checkbox("Real Time",
-                                                               value=st.session_state['real_time_checkbox'])
-
-        if st.session_state['real_time_checkbox']:
-            st.session_state.data = fetch_data(default_start_date, default_end_date)
-        else:
-            st.session_state.data = None
-
-
-        if col3.button("Fetch Data"):
-            st.session_state.data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
+        if real_time:
+            st.session_state.data = fetch_data(default_start_date.strftime('%Y-%m-%d'), default_end_date.strftime('%Y-%m-%d'))
+            start_date_input=default_start_date
+            end_date_input=default_end_date
+        elif press:
+                st.session_state.data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
 
 
 
