@@ -5,6 +5,9 @@ import requests
 from datetime import datetime, timedelta
 import math
 import mysql.connector
+import plotly.figure_factory as ff
+import plotly.graph_objects as go
+
 
 API_KEY = '53c365c5-8e53-4583-acf8-e9c37e6f00bd'
 MAC_ADDRESS = 'D2:7E:14:56:24:41'
@@ -194,10 +197,105 @@ def set_container_width(width):
                 """
     st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
+def plot_line_chart1(df, x, y, title, width=None):
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df[x],
+            y=df[y],
+            mode='lines',
+            line=dict(width=2, color='#1f78b4'),
+            marker=dict(size=6, color='#1f78b4'),
+            hoverinfo='x+y',
+            hovertemplate='<b>Thermal Comfort:</b> %{y}<br><b>Timestamp:</b> %{x}<extra></extra>'
+
+        )
+    )
+    fig.update_layout(
+        title=title,
+        margin=dict(l=0, r=0, t=30, b=0),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        # hovermode='x unified',
+        hoverlabel=dict(
+            bgcolor='white',
+            font_size=16,
+            font_family='Arial'
+        ),
+        xaxis_title=x,
+        yaxis_title=y
+    )
+    if width:
+        fig.update_layout(width=width)
+    st.plotly_chart(fig, use_container_width=True)
 
 def plot_line_chart(data, x_column, y_column, title, width=None):
     fig = px.line(data, x=x_column, y=y_column, title=title)
 
+    if width:
+        fig.update_layout(autosize=False, width=width)
+    else:
+        fig.update_layout(autosize=True)  # This will make Plotly attempt to size the plot to the container.
+
+    st.plotly_chart(fig, use_container_width=True)  # This will make Streamlit size the container to the plot.
+
+
+def plot_line_chart_pmv(data, x_column, y_column, title, width=None):
+    fig = go.Figure()
+
+    # Define the categories, boundaries, and their muted colors
+    categories = {
+        'Cold': (-3, -2.5, '#333399'),  # Darker Muted Blue
+        'Cool': (-2.5, -1.5, '#6666CC'),  # Darker Medium Muted Blue
+        'Slightly Cool': (-1.5, -0.5, '#9999CC'),  # Darker Light Muted Blue
+        'Neutral': (-0.5, 0.5, '#80B380'),  # Darker Muted Green
+        'Slightly Warm': (0.5, 1.5, '#FF9999'),  # Darker Light Muted Red
+        'Warm': (1.5, 2.5, '#FF6666'),  # Darker Medium Muted Red
+        'Hot': (2.5, 3, '#FF3333')  # Darker Dark Muted Red
+    }
+
+    # Add shaded regions for each category
+    for category, (y0, y1, color) in categories.items():
+        fig.add_shape(
+            type='rect',
+            x0=data[x_column].min(),
+            x1=data[x_column].max(),
+            y0=y0,
+            y1=y1,
+            fillcolor=color,
+            line=dict(width=0),
+            layer='below',
+            opacity=0.6
+        )
+
+
+    # Add the line plot
+    fig.add_trace(
+        go.Scatter(
+            x=data[x_column],
+            y=data[y_column],
+            mode='lines',
+            line=dict(color='black', width=2),
+            name="PMV"
+        )
+    )
+
+    # Update the layout
+    fig.update_layout(
+        title=title,
+        xaxis_title=x_column,
+        yaxis_title=y_column,
+        hovermode='closest',
+        yaxis=dict(
+            tickmode='array',
+            tickvals=[-3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3],
+            ticktext=[
+                '-3 (Cold)', '-2.5', '-2 (Cool)', '-1.5', '-1 (Slightly Cool)', '-0.5',
+                '0 (Neutral)', '0.5', '1 (Slightly Warm)', '1.5', '2 (Warm)', '2.5', '3 (Hot)'
+           ]
+        ),
+        font = dict(color='black')
+    )
     if width:
         fig.update_layout(autosize=False, width=width)
     else:
@@ -249,12 +347,27 @@ def main():
     if date_diff > 7:
         st.error('The selected date range is more than 7 days. Please select a shorter range.')
     else:
-
+        col3, col4 = st.columns(2)
         if 'data' not in st.session_state:
             st.session_state.data = None
+            # Initialize the checkbox state in session_state if it hasn't been already
+        if 'real_time_checkbox' not in st.session_state:
+            st.session_state['real_time_checkbox'] = False
 
-        if st.button("Fetch Data"):
+            # Use the saved state of the checkbox
+        st.session_state['real_time_checkbox'] = col4.checkbox("Real Time",
+                                                               value=st.session_state['real_time_checkbox'])
+
+        if st.session_state['real_time_checkbox']:
+            st.session_state.data = fetch_data(default_start_date, default_end_date)
+        else:
+            st.session_state.data = None
+
+
+        if col3.button("Fetch Data"):
             st.session_state.data = fetch_data(start_date_input.strftime('%Y-%m-%d'), end_date_input.strftime('%Y-%m-%d'))
+
+
 
         if st.session_state.data and "data" in st.session_state.data and "items" in st.session_state.data["data"]:
             start_datetime = datetime.combine(start_date_input, datetime.min.time())  # Convert to datetime with 00:00:00 time
@@ -274,7 +387,8 @@ def main():
             if 'pm25' in joined_df.columns:
                 joined_df['Air Quality Description'] = joined_df['pm25'].apply(get_pm25_description)
             if 't' in joined_df.columns and 'h' in joined_df.columns:
-                joined_df['pmv'] = joined_df.apply(lambda row: calculate_pmv(row['t'], row['h'], row['met'] if not pd.isna(row['met']) else 1), axis=1)
+                joined_df['pmv'] = joined_df.apply(
+                    lambda row: round(calculate_pmv(row['t'], row['h'], row['met'] if not pd.isna(row['met']) else 1),2), axis=1)
 
             if not joined_df.empty:
                 if 'time' in joined_df.columns and 't' in joined_df.columns:
@@ -282,15 +396,88 @@ def main():
                 if 'time' in joined_df.columns and 'h' in joined_df.columns:
                     plot_line_chart(joined_df, 'time', 'h', 'Indoor Humidity', width=1150)
                 if 'time' in joined_df.columns and 'voc' in joined_df.columns:
+                    st.markdown("""
+                        # TVOC Analysis
+                        Total Volatile Organic Compounds (TVOC) refers to the collective amount of 
+                        organic chemicals present in the air. These chemicals, known as VOCs, are 
+                        emitted as gases from certain solids or liquids, including a variety of 
+                        household and industrial products.
+
+                        Monitoring TVOC is crucial for several reasons:
+
+                        - **Health Implications:** Exposure to high levels of VOCs can cause 
+                          immediate health effects including eye, nose and throat irritation, 
+                          headaches, loss of coordination, and nausea. Long-term exposure may 
+                          also lead to chronic respiratory problems, liver and kidney damage, 
+                          and even cancer.
+                        - **Indoor Air Quality:** TVOC is a key indicator of indoor air quality. 
+                          Effective management and reduction of TVOC levels contribute to better 
+                          air quality and a healthier indoor environment.
+                        - **Regulatory Compliance:** In many regions, there are guidelines or 
+                          regulations governing the permissible levels of VOC emissions in indoor 
+                          environments, necessitating regular monitoring and management.
+
+                        The sources of VOCs include building materials, furnishings, cleaning 
+                        compounds, office equipment, personal care products, air fresheners, 
+                        pesticides, and more. Thus, analyzing TVOC levels is essential for 
+                        maintaining a safe and comfortable indoor environment.
+                    """)
                     plot_line_chart(joined_df, 'time', 'voc', 'TVOCs', width=1150)
                 if 'time' in joined_df.columns and 'pm1' in joined_df.columns:
+                    st.markdown("""
+                        # Particulate Matter (PM) Analysis
+                        Particulate matter (PM) refers to tiny particles or droplets in the air 
+                        that can be inhaled into the lungs. PM is usually categorized by size, 
+                        with common categories including PM1, PM2.5, and PM10, which refer to 
+                        particles with diameters of 1 micrometer, 2.5 micrometers, and 10 micrometers, 
+                        respectively.
+
+                        Monitoring PM is essential due to several reasons:
+
+                        - **Health Implications:** Exposure to PM can cause a range of health issues, 
+                          including respiratory and cardiovascular problems, as well as adverse 
+                          effects on the liver, spleen, and blood. Long-term exposure may also lead 
+                          to chronic respiratory diseases, heart disease, lung cancer, and can affect 
+                          development in children and the unborn.
+                        - **Environmental Impact:** PM can affect visibility, cause damage to vegetation, 
+                          and contribute to acid rain.
+                        - **Regulatory Compliance:** Many regions have established standards or guidelines 
+                          for PM concentrations to ensure air quality and public health.
+
+                        Various sources contribute to PM levels, including combustion from vehicles, 
+                        industrial processes, residential heating, and natural sources such as wildfires 
+                        and volcanic eruptions. Thus, analyzing PM levels is crucial for understanding 
+                        and improving air quality, ensuring a healthier and safer environment.
+                    """)
+
                     plot_line_chart(joined_df, 'time', 'pm1', 'PM1', width=1150)
                 if 'time' in joined_df.columns and 'pm25' in joined_df.columns:
                     plot_line_chart(joined_df, 'time', 'pm25', 'PM2.5', width=1150)
                 if 'time' in joined_df.columns and 'pm10' in joined_df.columns:
                     plot_line_chart(joined_df, 'time', 'pm10', 'PM10', width=1150)
                 if 'time' in joined_df.columns and 'pmv' in joined_df.columns:
-                    plot_line_chart(joined_df, 'time', 'pmv', 'PMV (Thermal Comfort)', width=1150)
+                    st.markdown("""
+                        # Thermal Comfort Analysis
+                        Thermal comfort refers to the condition of mind that expresses satisfaction 
+                        with the thermal environment. It is crucial for an individual's well-being 
+                        and can impact one's health and productivity. Thermal comfort is achieved 
+                        when the body can dissipate an equal amount of heat to the environment, 
+                        maintaining a core body temperature within a narrow range around 37°C (98.6°F).
+
+                        Several factors influence thermal comfort, including:
+
+                        - **Air Temperature:** The temperature of the air surrounding the body.
+                        - **Radiant Temperature:** The temperature radiated from surrounding surfaces.
+                        - **Humidity:** The moisture content in the air.
+                        - **Air Velocity:** The speed of air moving across the body.
+                        - **Clothing Insulation:** The level of insulation provided by clothing.
+                        - **Metabolic Heat:** The heat generated by the body's metabolism.
+
+                        Monitoring and analyzing thermal comfort is essential for creating comfortable 
+                        and healthy indoor environments, improving occupants' satisfaction, and 
+                        enhancing the efficiency of heating, ventilation, and air conditioning (HVAC) systems.
+                    """)
+                    plot_line_chart_pmv(joined_df, 'time', 'pmv', 'PMV (Thermal Comfort)', width=1150)
 
                 # Count the frequency of each description
                 description_counts = joined_df['Air Quality Description'].value_counts()
@@ -298,7 +485,9 @@ def main():
                 # Plot the frequencies using a bar chart
                 fig = px.bar(description_counts, x=description_counts.index, y=description_counts.values, title="Frequency of Air Quality Index", labels={
                     'y': 'Frequency', 'index': 'Description'})
-                st.plotly_chart(fig, width=1150)
+
+                st.plotly_chart(fig,
+                                use_container_width=True)  # This will make Streamlit size the container to the plot.
 
                 num_pages = max(1, len(joined_df) // PAGE_SIZE + (1 if len(joined_df) % PAGE_SIZE else 0))
 
