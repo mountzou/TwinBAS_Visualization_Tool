@@ -5,6 +5,7 @@ import requests
 from datetime import datetime, timedelta
 import math
 import mysql.connector
+import pydeck as pdk
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 import numpy as np
@@ -482,14 +483,43 @@ def main():
                     'y': 'Frequency', 'index': 'Description'})
 
                 st.plotly_chart(fig,
-                                use_container_width=True)  # This will make Streamlit size the container to the plot.
+                                use_container_width=True)  # This will make Streamlit size the container to the plot
+
+                st.markdown("""
+                    # Atmotube Real time Location
+                """)
+
+                # Define the latitude and longitude of the location you want to highlight
+                first_non_nan_coords = next(((coords['lat'], coords['lon']) for coords in df['coords'][::-1] if
+                                             pd.notna(coords) and 'lat' in coords and 'lon' in coords), (None, None))
+                lat, lon = first_non_nan_coords
+                if first_non_nan_coords:
+                    # Create a DataFrame with the location data
+
+                    df_l = pd.DataFrame({'lat': [lat], 'lon': [lon]})
+
+                    # Define the Pydeck map layer
+                    layer = pdk.Layer(
+                        "ScatterplotLayer",
+                        df_l,
+                        get_position='[lon, lat]',
+                        get_radius=100,  # Radius of the circle in meters
+                        get_fill_color=[255, 0, 0],  # Circle color
+                    )
+
+                    # Define the map view state
+                    view_state = pdk.ViewState(latitude=lat, longitude=lon, zoom=12)
+
+                    # Create the Pydeck chart
+                    st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
+
 
                 num_pages = max(1, len(joined_df) // PAGE_SIZE + (1 if len(joined_df) % PAGE_SIZE else 0))
 
                 st.title("TwinBAS Data Collection")
 
                 page = st.selectbox("Select page", list(range(1, num_pages + 1)))
-
+                print(joined_df['coords'])
                 # Splitting the 'coords' column into 'lat' and 'lon'
                 joined_df['lat'] = joined_df['coords'].apply(lambda x: x['lat'] if pd.notna(x) else None)
                 joined_df['lon'] = joined_df['coords'].apply(lambda x: x['lon'] if pd.notna(x) else None)
@@ -502,6 +532,7 @@ def main():
                 start_idx = (page - 1) * PAGE_SIZE
                 end_idx = start_idx + PAGE_SIZE
                 st.table(joined_df.iloc[start_idx:end_idx])
+
             else:
                 st.warning("No data available for the selected date range.")
 
