@@ -9,6 +9,9 @@ import pydeck as pdk
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 import numpy as np
+from timezonefinder import TimezoneFinder
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 API_KEY = '53c365c5-8e53-4583-acf8-e9c37e6f00bd'
@@ -61,8 +64,8 @@ def get_met(start_datetime, end_datetime):
     df = pd.DataFrame(data, columns=['met', 'timestamp'])
 
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df.set_index('timestamp', inplace=True)
-    result = df.resample('1T').mean()
+
+    result = df
 
     return result
 
@@ -349,6 +352,7 @@ def main():
     press = col3.button("Fetch Data")
     real_time = col4.checkbox("Real Time")
 
+
     # Check if the difference is greater than 7 days
     if date_diff > 7:
         st.error('The selected date range is more than 7 days. Please select a shorter range.')
@@ -373,7 +377,33 @@ def main():
             df = pd.DataFrame(st.session_state.data["data"]["items"])
             df['time'] = pd.to_datetime(df['time'])
 
+            # Define the latitude and longitude of the location you want to highlight
+            first_non_nan_coords = next(((coords['lat'], coords['lon']) for coords in df['coords'][::-1] if
+                                         pd.notna(coords) and 'lat' in coords and 'lon' in coords), (None, None))
+            lat, lon = first_non_nan_coords
+
+            tf = TimezoneFinder()
+
+
+
+            tz_name = tf.timezone_at(lat=lat, lng=lon)
+
+            # Check if we have a valid timezone name
+            if tz_name:
+                tz = ZoneInfo(tz_name)
+
+            # Adjust 'time' directly in the dataframe if 'time' is timezone naive or in UTC
+            df['time'] = df['time'].apply(
+                lambda x: x.replace(tzinfo=ZoneInfo('UTC')).astimezone(tz) if x.tzinfo is None else x.astimezone(
+                    tz))
+            df_met['timestamp'] = df_met['timestamp'].apply(
+                lambda x: x.replace(tzinfo=ZoneInfo('UTC')).astimezone(tz) if x.tzinfo is None else x.astimezone(
+                    tz))
+
             df.set_index('time', inplace=True)
+            df_met.set_index('timestamp', inplace=True)
+
+            df_met = df_met.resample('1T').mean()
 
             joined_df = df.join(df_met, how='outer')
             joined_df.reset_index(inplace=True)
@@ -489,10 +519,6 @@ def main():
                     # Atmotube Real time Location
                 """)
 
-                # Define the latitude and longitude of the location you want to highlight
-                first_non_nan_coords = next(((coords['lat'], coords['lon']) for coords in df['coords'][::-1] if
-                                             pd.notna(coords) and 'lat' in coords and 'lon' in coords), (None, None))
-                lat, lon = first_non_nan_coords
                 if first_non_nan_coords:
                     # Create a DataFrame with the location data
 
